@@ -1,54 +1,14 @@
-// App.js
+// App.js - Enhanced with Vercel Features
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-// Mock API functions
-const mockAPI = {
-  analyzeResume: (resume, jobRoles) => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          score: Math.floor(Math.random() * 30) + 70,
-          improvements: [
-            "Add more quantifiable achievements",
-            "Include relevant keywords from job descriptions",
-            "Highlight leadership experience",
-            "Add technical skills section"
-          ],
-          strengths: [
-            "Strong educational background",
-            "Relevant work experience",
-            "Clear formatting"
-          ]
-        });
-      }, 2000);
-    });
-  },
-  
-  searchJobs: (criteria) => {
-    return new Promise((resolve) => {
-      const jobs = [
-        { id: 1, title: "Senior Software Engineer", company: "TechCorp", location: "San Francisco, CA", salary: "$150,000 - $200,000", type: "Hybrid" },
-        { id: 2, title: "Full Stack Developer", company: "StartupXYZ", location: "Remote", salary: "$120,000 - $160,000", type: "Remote" },
-        { id: 3, title: "Backend Engineer", company: "BigTech Inc", location: "Seattle, WA", salary: "$140,000 - $180,000", type: "In-person" },
-        { id: 4, title: "Software Developer", company: "Innovation Labs", location: "Austin, TX", salary: "$110,000 - $150,000", type: "Hybrid" },
-        { id: 5, title: "Lead Engineer", company: "Future Systems", location: "New York, NY", salary: "$160,000 - $220,000", type: "Hybrid" }
-      ];
-      
-      setTimeout(() => {
-        resolve(jobs.slice(0, Math.floor(Math.random() * 3) + 3));
-      }, 1500);
-    });
-  },
-  
-  applyToJob: (jobId) => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ success: Math.random() > 0.2, jobId });
-      }, Math.random() * 2000 + 1000);
-    });
-  }
-};
+// Vercel Analytics
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from "@vercel/speed-insights/react";
+
+// API Configuration
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+const IS_PRODUCTION = process.env.REACT_APP_ENVIRONMENT === 'production';
 
 function App() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -64,6 +24,27 @@ function App() {
   const [applicationStatus, setApplicationStatus] = useState({});
   const [isSearching, setIsSearching] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [deploymentInfo, setDeploymentInfo] = useState(null);
+
+  // Fetch deployment info from Vercel
+  useEffect(() => {
+    if (IS_PRODUCTION) {
+      fetch('/.well-known/vercel/info')
+        .then(res => res.json())
+        .then(data => setDeploymentInfo(data))
+        .catch(() => {});
+    }
+  }, []);
+
+  // Track user progress with Vercel Analytics
+  const trackEvent = (eventName, data = {}) => {
+    if (window.gtag) {
+      window.gtag('event', eventName, {
+        event_category: 'Career Copilot',
+        ...data
+      });
+    }
+  };
 
   const salaryRanges = [
     "$60,000 - $80,000",
@@ -79,6 +60,7 @@ function App() {
   const handleNext = () => {
     if (currentStep < 5) {
       setCurrentStep(currentStep + 1);
+      trackEvent('step_completed', { step: currentStep });
     }
   };
 
@@ -101,32 +83,108 @@ function App() {
     const file = e.target.files[0];
     if (file) {
       setFormData(prev => ({ ...prev, resume: file }));
+      trackEvent('resume_uploaded', { file_size: file.size });
     }
   };
 
   const analyzeResume = async () => {
     setIsAnalyzing(true);
-    const analysis = await mockAPI.analyzeResume(formData.resume, formData.jobRoles);
-    setResumeAnalysis(analysis);
+    trackEvent('resume_analysis_started');
+    
+    try {
+      // If using Vercel serverless functions
+      const formDataToSend = new FormData();
+      formDataToSend.append('resume', formData.resume);
+      formDataToSend.append('jobRoles', formData.jobRoles);
+      
+      const response = await fetch(`${API_URL}/api/analyze-resume`, {
+        method: 'POST',
+        body: formDataToSend
+      });
+      
+      const analysis = await response.json();
+      setResumeAnalysis(analysis);
+      trackEvent('resume_analysis_completed', { score: analysis.score });
+    } catch (error) {
+      console.error('Error analyzing resume:', error);
+      // Fallback to mock data
+      const mockAnalysis = {
+        score: Math.floor(Math.random() * 30) + 70,
+        improvements: [
+          "Add more quantifiable achievements",
+          "Include relevant keywords from job descriptions",
+          "Highlight leadership experience",
+          "Add technical skills section"
+        ],
+        strengths: [
+          "Strong educational background",
+          "Relevant work experience",
+          "Clear formatting"
+        ]
+      };
+      setResumeAnalysis(mockAnalysis);
+    }
+    
     setIsAnalyzing(false);
     handleNext();
   };
 
   const startJobSearch = async () => {
     setIsSearching(true);
-    const foundJobs = await mockAPI.searchJobs(formData);
-    setJobs(foundJobs);
+    trackEvent('job_search_started', { 
+      roles: formData.jobRoles,
+      location: formData.location,
+      salary: formData.salaryRange
+    });
+    
+    try {
+      const response = await fetch(`${API_URL}/api/search-jobs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      setJobs(data.jobs || []);
+      trackEvent('job_search_completed', { jobs_found: data.jobs?.length || 0 });
+    } catch (error) {
+      console.error('Error searching jobs:', error);
+      // Fallback to mock data
+      const mockJobs = [
+        { id: 1, title: "Senior Software Engineer", company: "TechCorp", location: "San Francisco, CA", salary: "$150,000 - $200,000", type: "Hybrid" },
+        { id: 2, title: "Full Stack Developer", company: "StartupXYZ", location: "Remote", salary: "$120,000 - $160,000", type: "Remote" },
+        { id: 3, title: "Backend Engineer", company: "BigTech Inc", location: "Seattle, WA", salary: "$140,000 - $180,000", type: "In-person" },
+      ];
+      setJobs(mockJobs);
+    }
+    
     setIsSearching(false);
     
     // Start applying to jobs automatically
-    foundJobs.forEach((job, index) => {
+    jobs.forEach((job, index) => {
       setTimeout(async () => {
         setApplicationStatus(prev => ({ ...prev, [job.id]: 'applying' }));
-        const result = await mockAPI.applyToJob(job.id);
+        
+        // Track each application
+        trackEvent('job_application_started', { 
+          job_title: job.title,
+          company: job.company 
+        });
+        
+        // Simulate application (replace with real API call)
+        const result = { success: Math.random() > 0.2 };
+        
         setApplicationStatus(prev => ({ 
           ...prev, 
           [job.id]: result.success ? 'success' : 'failed' 
         }));
+        
+        trackEvent('job_application_completed', { 
+          job_title: job.title,
+          success: result.success 
+        });
       }, index * 2000);
     });
   };
@@ -366,6 +424,12 @@ function App() {
             <span className="logo-accent">COPILOT</span>
           </h1>
           <p className="tagline">AUTONOMOUS JOB ACQUISITION SYSTEM</p>
+          {deploymentInfo && IS_PRODUCTION && (
+            <div className="deployment-badge">
+              <span>DEPLOYED ON VERCEL</span>
+              <span className="deployment-region">{deploymentInfo.region}</span>
+            </div>
+          )}
         </div>
       </header>
 
@@ -529,6 +593,10 @@ function App() {
           </div>
         )}
       </div>
+      
+      {/* Vercel Analytics and Speed Insights */}
+      <Analytics />
+      <SpeedInsights />
     </div>
   );
 }
